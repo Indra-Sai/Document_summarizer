@@ -452,7 +452,253 @@
             </div>
         </div>
     </div>
+ <script>
+        let currentSummary = '';
+        let currentFilename = '';
 
+        // DOM elements
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const uploadSection = document.getElementById('uploadSection');
+        const resultsSection = document.getElementById('resultsSection');
+        const statsGrid = document.getElementById('statsGrid');
+        const summaryText = document.getElementById('summaryText');
+
+        // Event listeners
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', handleDragOver);
+        uploadArea.addEventListener('dragleave', handleDragLeave);
+        uploadArea.addEventListener('drop', handleDrop);
+        fileInput.addEventListener('change', handleFileSelect);
+        uploadBtn.addEventListener('click', uploadFile);
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                handleFileSelect();
+            }
+        }
+
+        function handleFileSelect() {
+            const file = fileInput.files[0];
+            if (file && file.type === 'application/pdf') {
+                uploadBtn.disabled = false;
+                uploadBtn.innerHTML = '<i class="fas fa-upload"></i> Upload and Summarize';
+            } else {
+                uploadBtn.disabled = true;
+                showError('Please select a valid PDF file.');
+            }
+        }
+
+        function updateProgress(step, text, progress) {
+            // Update progress bar
+            progressFill.style.width = progress + '%';
+            
+            // Update progress text
+            progressText.textContent = text;
+            
+            // Update progress steps
+            document.querySelectorAll('.step').forEach((s, index) => {
+                s.classList.remove('active', 'completed');
+                if (index < step - 1) {
+                    s.classList.add('completed');
+                } else if (index === step - 1) {
+                    s.classList.add('active');
+                }
+            });
+        }
+
+        function uploadFile() {
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // Show progress container
+            progressContainer.style.display = 'block';
+            uploadBtn.disabled = true;
+            uploadBtn.innerHTML = '<span class="loading"></span> Processing...';
+
+            // Reset progress
+            updateProgress(1, 'Uploading file...', 10);
+
+            // Simulate progress steps
+            const progressSteps = [
+                { step: 1, text: 'Uploading file...', progress: 10 },
+                { step: 2, text: 'Extracting text from PDF...', progress: 30 },
+                { step: 3, text: 'Analyzing document content...', progress: 50 },
+                { step: 4, text: 'Generating summary...', progress: 80 },
+                { step: 5, text: 'Complete!', progress: 100 }
+            ];
+
+            let currentStep = 0;
+            const progressInterval = setInterval(() => {
+                if (currentStep < progressSteps.length - 1) {
+                    currentStep++;
+                    const stepData = progressSteps[currentStep];
+                    updateProgress(stepData.step, stepData.text, stepData.progress);
+                }
+            }, 800);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                clearInterval(progressInterval);
+                updateProgress(5, 'Complete!', 100);
+                
+                setTimeout(() => {
+                    if (data.success) {
+                        showResults(data);
+                    } else {
+                        showError(data.error || 'An error occurred during processing.');
+                    }
+                }, 1000);
+            })
+            .catch(error => {
+                clearInterval(progressInterval);
+                console.error('Error:', error);
+                showError('An error occurred while processing the file. Please try again.');
+            });
+        }
+
+        function showResults(data) {
+            currentSummary = data.summary;
+            currentFilename = data.filename;
+            
+            // Populate stats
+            const stats = data.stats;
+            statsGrid.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-number">${stats.words.toLocaleString()}</div>
+                    <div class="stat-label">Total Words</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${stats.sentences}</div>
+                    <div class="stat-label">Sentences</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${stats.paragraphs}</div>
+                    <div class="stat-label">Paragraphs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${stats.compression_ratio}%</div>
+                    <div class="stat-label">Compression Ratio</div>
+                </div>
+            `;
+
+            // Populate summary
+            summaryText.textContent = data.summary;
+
+            // Show results
+            uploadSection.style.display = 'none';
+            resultsSection.style.display = 'block';
+        }
+
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${message}`;
+            
+            uploadSection.appendChild(errorDiv);
+            
+            setTimeout(() => {
+                errorDiv.remove();
+            }, 5000);
+        }
+
+        function resetApp() {
+            uploadSection.style.display = 'block';
+            resultsSection.style.display = 'none';
+            progressContainer.style.display = 'none';
+            progressFill.style.width = '0%';
+            progressText.textContent = 'Starting process...';
+            
+            // Reset progress steps
+            document.querySelectorAll('.step').forEach((s, index) => {
+                s.classList.remove('active', 'completed');
+                if (index === 0) {
+                    s.classList.add('active');
+                }
+            });
+            
+            uploadBtn.disabled = true;
+            uploadBtn.innerHTML = '<i class="fas fa-upload"></i> Upload and Summarize';
+            fileInput.value = '';
+            statsGrid.innerHTML = '';
+            summaryText.textContent = '';
+        }
+
+        function downloadSummary() {
+            fetch('/download_summary', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    summary: currentSummary,
+                    filename: currentFilename
+                })
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${currentFilename.replace('.pdf', '')}_summary.txt`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            })
+            .catch(error => {
+                console.error('Error downloading summary:', error);
+                showError('Error downloading summary.');
+            });
+        }
+
+        function copyToClipboard() {
+            navigator.clipboard.writeText(currentSummary).then(() => {
+                const successDiv = document.createElement('div');
+                successDiv.className = 'success-message';
+                successDiv.innerHTML = '<i class="fas fa-check"></i> Summary copied to clipboard!';
+                
+                resultsSection.appendChild(successDiv);
+                
+                setTimeout(() => {
+                    successDiv.remove();
+                }, 3000);
+            }).catch(err => {
+                console.error('Error copying to clipboard:', err);
+                showError('Error copying to clipboard.');
+            });
+        }
+    </script>
     
 </body>
 </html> 
