@@ -78,7 +78,7 @@ Processing phase
 
 Results
 
- ![Result](results/result_display.png) |
+ ![Result](results/result_display.png) 
 
 ---
 

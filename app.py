@@ -100,3 +100,149 @@ def calculate_sentence_similarity(sentence1, sentence2):
         return 0.0
     
     return len(intersection) / len(union)
+def build_similarity_matrix(sentences):
+    """Build similarity matrix for sentences"""
+    n = len(sentences)
+    similarity_matrix = np.zeros((n, n))
+    
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                similarity_matrix[i][j] = calculate_sentence_similarity(sentences[i], sentences[j])
+    
+    return similarity_matrix
+
+def normalize_matrix(matrix):
+    """Normalize matrix by row sums"""
+    row_sums = matrix.sum(axis=1)
+    # Avoid division by zero
+    row_sums[row_sums == 0] = 1
+    return matrix / row_sums[:, np.newaxis]
+
+def textrank_summarize(sentences, summary_ratio=0.3, damping=0.85, max_iter=100, tolerance=1e-6):
+    """Implement TextRank algorithm for extractive summarization"""
+    if len(sentences) <= 3:
+        return sentences
+    
+    # Build similarity matrix
+    similarity_matrix = build_similarity_matrix(sentences)
+    
+    # Normalize the similarity matrix
+    normalized_matrix = normalize_matrix(similarity_matrix)
+    
+    # Initialize scores
+    scores = np.ones(len(sentences)) / len(sentences)
+    
+    # Iterative TextRank algorithm
+    for _ in range(max_iter):
+        new_scores = (1 - damping) + damping * normalized_matrix.T.dot(scores)
+        
+        # Check convergence
+        if np.sum(np.abs(new_scores - scores)) < tolerance:
+            break
+        
+        scores = new_scores
+    
+    # Select top sentences
+    num_sentences = max(3, int(len(sentences) * summary_ratio))
+    top_indices = np.argsort(scores)[-num_sentences:]
+    
+    # Sort by original order to maintain coherence
+    top_indices = sorted(top_indices)
+    
+    # Create summary
+    summary_sentences = [sentences[i] for i in top_indices]
+    summary = ' '.join(summary_sentences)
+    
+    return summary
+
+def enhance_summary_with_keywords(text, summary):
+    """Enhance summary by ensuring important keywords are included"""
+    # Extract important keywords from original text
+    stop_words = get_stop_words()
+    words = re.findall(r'\b\w+\b', text.lower())
+    words = [word for word in words if word not in stop_words and len(word) > 3]
+    
+    # Get word frequencies
+    word_freq = Counter(words)
+    important_words = [word for word, freq in word_freq.most_common(10)]
+    
+    # Check if important words are in summary
+    summary_words = set(re.findall(r'\b\w+\b', summary.lower()))
+    missing_words = [word for word in important_words if word not in summary_words]
+    
+    # If important words are missing, try to add relevant sentences
+    if missing_words and len(missing_words) > 0:
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        
+        for word in missing_words[:3]:  # Add at most 3 missing important words
+            for sentence in sentences:
+                if word in sentence.lower() and sentence not in summary:
+                    # Add sentence if it's not too long and doesn't make summary too long
+                    if len(sentence) < 200 and len(summary) + len(sentence) < len(text) * 0.5:
+                        summary += ' ' + sentence
+                        break
+    
+    return summary
+
+def summarize_text_advanced(text, summary_ratio=0.25):
+    """Generate a summary using TextRank algorithm with enhancements"""
+    if not text.strip():
+        return "No text found in the document."
+    
+    # Preprocess text
+    text = preprocess_text(text)
+    
+    # Split into sentences
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    sentences = [s.strip() for s in sentences if s.strip() and len(s.strip()) > 20]
+    
+    if len(sentences) <= 3:
+        return text
+    
+    # Generate summary using TextRank
+    summary = textrank_summarize(sentences, summary_ratio)
+    
+    # Enhance summary with important keywords
+    summary = enhance_summary_with_keywords(text, summary)
+    
+    # Post-process summary for better readability
+    summary = re.sub(r'\s+', ' ', summary)  # Clean up whitespace
+    summary = summary.strip()
+    
+    # Ensure summary is not too long
+    if len(summary) > len(text) * 0.5:
+        # Truncate to reasonable length
+        sentences = re.split(r'(?<=[.!?])\s+', summary)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        target_length = len(text) * 0.4
+        current_length = 0
+        final_sentences = []
+        
+        for sentence in sentences:
+            if current_length + len(sentence) <= target_length:
+                final_sentences.append(sentence)
+                current_length += len(sentence)
+            else:
+                break
+        
+        summary = ' '.join(final_sentences)
+    
+    return summary
+
+def count_words_and_sentences(text):
+    """Count words and sentences in text"""
+    # Count words
+    words = re.findall(r'\b\w+\b', text.lower())
+    word_count = len(words)
+    
+    # Count sentences
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    sentence_count = len([s for s in sentences if s.strip()])
+    
+    # Count paragraphs
+    paragraphs = text.split('\n\n')
+    paragraph_count = len([p for p in paragraphs if p.strip()])
+    
+    return word_count, sentence_count, paragraph_count
