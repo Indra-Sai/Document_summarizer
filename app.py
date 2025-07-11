@@ -246,3 +246,100 @@ def count_words_and_sentences(text):
     paragraph_count = len([p for p in paragraphs if p.strip()])
     
     return word_count, sentence_count, paragraph_count
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not file:
+            return jsonify({'error': 'Invalid file'}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Invalid file type. Please upload a PDF file.'}), 400
+        
+        # Check file size
+        file.seek(0, 2)  # Seek to end
+        file_size = file.tell()
+        file.seek(0)  # Reset to beginning
+        
+        if file_size > app.config['MAX_CONTENT_LENGTH']:
+            return jsonify({'error': f'File too large. Maximum size is {app.config["MAX_CONTENT_LENGTH"] // (1024*1024)}MB'}), 400
+        
+        # Read PDF content
+        pdf_content = file.read()
+        if not pdf_content:
+            return jsonify({'error': 'Empty file'}), 400
+        
+        pdf_file = io.BytesIO(pdf_content)
+        
+        # Extract text from PDF
+        text = extract_text_from_pdf(pdf_file)
+        
+        if text.startswith("Error"):
+            return jsonify({'error': text}), 400
+        
+        if not text.strip():
+            return jsonify({'error': 'No text could be extracted from the PDF. The file might be corrupted or contain only images.'}), 400
+        
+        # Generate summary using advanced extractive method
+        summary = summarize_text_advanced(text)
+        
+        # Calculate statistics
+        word_count, sentence_count, paragraph_count = count_words_and_sentences(text)
+        
+        stats = {
+            'original_length': len(text),
+            'summary_length': len(summary),
+            'sentences': sentence_count,
+            'words': word_count,
+            'paragraphs': paragraph_count,
+            'compression_ratio': round((len(summary) / len(text)) * 100, 2) if len(text) > 0 else 0
+        }
+        
+        return jsonify({
+            'success': True,
+            'summary': summary,
+            'original_text': text[:1000] + "..." if len(text) > 1000 else text,
+            'stats': stats,
+            'filename': secure_filename(file.filename) if file.filename else 'unknown'
+        })
+        
+    except Exception as e:
+        print(f"Error in upload_file: {str(e)}")
+        return jsonify({'error': f'Error processing file: {str(e)}'}), 500
+
+@app.route('/download_summary', methods=['POST'])
+def download_summary():
+    data = request.get_json()
+    summary = data.get('summary', '')
+    filename = data.get('filename', 'summary')
+    
+    # Create a text file with the summary
+    output = io.StringIO()
+    output.write(f"Document Summary\n")
+    
+    output.write(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    output.write(f"Original file: {filename}\n")
+    output.write(f"Method: TextRank with Keyword Enhancement\n")
+    output.write(f"{'='*50}\n\n")
+    output.write(summary)
+    
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode('utf-8')),
+        mimetype='text/plain',
+        as_attachment=True,
+        download_name=f"{filename.replace('.pdf', '')}_summary.txt"
+    )
+
+if __name__== '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
